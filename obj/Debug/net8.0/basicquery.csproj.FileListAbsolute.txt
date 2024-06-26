@@ -32,3 +32,4 @@ C:\Users\t-cazhang\source\repos\basicquery\basicquery\obj\Debug\net8.0\refint\ba
 C:\Users\t-cazhang\source\repos\basicquery\basicquery\obj\Debug\net8.0\basicquery.pdb
 C:\Users\t-cazhang\source\repos\basicquery\basicquery\obj\Debug\net8.0\basicquery.genruntimeconfig.cache
 C:\Users\t-cazhang\source\repos\basicquery\basicquery\obj\Debug\net8.0\ref\basicquery.dll
+C:\Users\t-cazhang\source\repos\basicquery\basicquery\obj\Debug\net8.0\basicquery.sourcelink.json
