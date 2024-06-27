@@ -1,0 +1,2 @@
+obj\Debug\net8.0\opentelemetry\proto\profiles\v1experimental/Pprofextended.cs: proto/opentelemetry/proto/common/v1/common.proto\
+ proto/opentelemetry/proto/profiles/v1experimental/pprofextended.proto

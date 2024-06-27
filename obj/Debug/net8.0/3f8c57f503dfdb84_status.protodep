@@ -1,0 +1,2 @@
+obj\Debug\net8.0\google\rpc/Status.cs: C:/Users/t-cazhang/.nuget/packages/grpc.tools/2.64.0/build/native/include/google/protobuf/any.proto\
+ proto/google/rpc/status.proto
