@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using System;
 using System.Data;
 using SpanRetriever1;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
@@ -30,6 +31,7 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
 
         using (var response = kustoClient.ExecuteQuery(database, query, null))
         {
+            Console.WriteLine("Type of response: " + response.GetType().FullName);
             int columnTraceId = response.GetOrdinal("env_dt_traceId");
             string traceId = null;
             int count = 0;
@@ -69,5 +71,5 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
     return Results.Ok(JsonConvert.SerializeObject(spanIds));
 });
 
-
+ 
 app.Run();
