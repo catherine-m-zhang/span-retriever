@@ -28,19 +28,18 @@ namespace BasicQuery
                 // First query to go from requestId -> traceId
                 string query = $@"
                                 union *
-                                | where TIMESTAMP > ago(2d)
+                                | where TIMESTAMP > ago(4d)
                                 | where ['http.request.header.apim_request_id'] == '{reqId}'";
 
                 using (var response = kustoClient.ExecuteQuery(database, query, null))
                 {
-                    int columnTraceId = response.GetOrdinal("env_dt_traceId");
                     string traceId = null;
                     int count = 0;
 
                     while (response.Read())
                     {
                         count++;
-                        traceId = response.GetString(columnTraceId);
+                        traceId = response["env_dt_traceId"].ToString();
                     }
                     if (count != 1)
                     {
@@ -55,12 +54,10 @@ namespace BasicQuery
 
                     using (var secondResponse = kustoClient.ExecuteQuery(database, secondQuery, null))
                     {
-                        int columnSpanId = secondResponse.GetOrdinal("env_dt_spanId");
-
                         while (secondResponse.Read())
                         {
                             Console.WriteLine("SpanId - {0}",
-                              secondResponse.GetString(columnSpanId));
+                                secondResponse["env_dt_spanId"]);
                         }
                     }
                 }
