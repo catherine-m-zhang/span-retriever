@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SpanRetriever1")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ebc37e7c89d4945ceafd733c9e7362373c4a5068")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3e76718b97a5aa8f4a72aefc672a2b8f84b0948e")]
 [assembly: System.Reflection.AssemblyProductAttribute("SpanRetriever1")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SpanRetriever1")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

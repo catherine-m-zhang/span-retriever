@@ -1,4 +1,6 @@
-﻿namespace SpanRetriever1
+﻿using System.Data;
+
+namespace SpanRetriever1
 {
     public class SpanData
     {
@@ -10,8 +12,7 @@
         // Span Metadata
         public string Name { get; set; } = string.Empty;
         public int Kind { get; set; } // Use appropriate enum or mapping for SpanKind
-        public string? TraceState { get; set; }
-
+      
         // Timing Information
         public DateTimeOffset StartTime { get; set; }
         public DateTimeOffset EndTime { get; set; } // End time of the span
@@ -27,11 +28,6 @@
         // Status
         public SpanStatus Status { get; set; } = new SpanStatus();
 
-        // Resource
-        public Resource Resource { get; set; } = new Resource();
-
-        // Flags
-        public uint Flags { get; set; }
     }
 
     public class SpanStatus
@@ -40,8 +36,5 @@
         public string? Description { get; set; }
     }
 
-    public class Resource
-    {
-        public List<KeyValuePair<string, object>> Attributes { get; set; } = new();
-    }
+
 }

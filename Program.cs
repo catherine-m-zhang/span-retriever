@@ -7,7 +7,8 @@ using Newtonsoft.Json;
 using System;
 using System.Data;
 using SpanRetriever1;
-using OpenTelemetry.Trace;
+using OpenTelemetry.Trace; 
+using OpenTelemetry.Proto.Trace.V1;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
@@ -18,7 +19,7 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
     var kcsb = new KustoConnectionStringBuilder(clusterUri)
         .WithAadUserPromptAuthentication();
     var spanIds = new List<string>();
-
+    var spans = new List<Span>();
     using (var kustoClient = KustoClientFactory.CreateCslQueryProvider(kcsb))
     {
         string database = "prod";
@@ -26,20 +27,18 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
         // First query to go from requestId -> traceId
         string query = $@"
             union *
-            | where TIMESTAMP > ago(2d)
+            | where TIMESTAMP > ago(4d)
             | where ['http.request.header.apim_request_id'] == '{requestId}'";
 
         using (var response = kustoClient.ExecuteQuery(database, query, null))
         {
-            Console.WriteLine("Type of response: " + response.GetType().FullName);
-            int columnTraceId = response.GetOrdinal("env_dt_traceId");
             string traceId = null;
             int count = 0;
 
             while (response.Read())
             {
                 count++;
-                traceId = response.GetString(columnTraceId);
+                traceId = response["env_dt_traceId"].ToString();
             }
 
             if (count != 1)
@@ -49,6 +48,7 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
             }
 
             Console.WriteLine("TraceId: " + traceId);
+            List<SpanData> spanDataList;
 
             // Second query to go from traceId -> span
             string secondQuery = $@"
@@ -57,15 +57,16 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
 
             using (var secondResponse = kustoClient.ExecuteQuery(database, secondQuery, null))
             {
-                int columnSpanId = secondResponse.GetOrdinal("env_dt_spanId");
-
+                spanDataList = DataConverter.ConvertResponseToSpanData(secondResponse);
                 while (secondResponse.Read())
                 {
-                    Console.WriteLine("SpanId - {0}", secondResponse.GetString(columnSpanId));
-                    var spanId = secondResponse.GetString(columnSpanId);
+                    var spanId = secondResponse["env_dt_spanId"].ToString();
+                    Console.WriteLine("SpanId - {0}", spanId);
                     spanIds.Add(spanId);
                 }
+
             }
+            spans = DataConverter.ConvertSpanDataToSpan(spanDataList);
         }
     }
     return Results.Ok(JsonConvert.SerializeObject(spanIds));

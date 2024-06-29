@@ -52,3 +52,4 @@ C:\Users\t-cazhang\source\repos\SpanRetriever1\SpanRetriever1\bin\Debug\net8.0\O
 C:\Users\t-cazhang\source\repos\SpanRetriever1\SpanRetriever1\bin\Debug\net8.0\OpenTelemetry.Api.dll
 C:\Users\t-cazhang\source\repos\SpanRetriever1\SpanRetriever1\bin\Debug\net8.0\OpenTelemetry.Api.ProviderBuilderExtensions.dll
 C:\Users\t-cazhang\source\repos\SpanRetriever1\SpanRetriever1\bin\Debug\net8.0\OpenTelemetry.Exporter.OpenTelemetryProtocol.dll
+C:\Users\t-cazhang\source\repos\SpanRetriever1\SpanRetriever1\obj\Debug\net8.0\SpanRetriever1.sourcelink.json

@@ -1,17 +1,26 @@
-﻿using System.Data;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Data;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using Google.Protobuf;
 using Kusto.Data;
 using Kusto.Data.Common;
 using Kusto.Data.Net.Client;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json;
-using SpanRetriever1;
-using OpenTelemetry.Trace;
-using Google.Protobuf;
+using OpenTelemetry.Internal;
 using OpenTelemetry.Proto.Common.V1;
+using OpenTelemetry.Proto.Collector.Trace.V1;
+using OpenTelemetry.Proto.Resource.V1;
 using OpenTelemetry.Proto.Trace.V1;
+using OpenTelemetry.Trace;
+using SpanRetriever1;
+using OtlpTrace = OpenTelemetry.Proto.Trace.V1;
+//not sure if should use OpenTelemetry.Trace.Status instead
+using Status = OpenTelemetry.Proto.Trace.V1.Status;
+using Kusto.Cloud.Platform.Msal;
 
 namespace SpanRetriever1
 {
@@ -24,17 +33,31 @@ namespace SpanRetriever1
 
             while (response.Read())
             {
+                var traceIdBase64 = response["env_dt_traceId"].ToString();
+                var traceIdBytes = Convert.FromBase64String(traceIdBase64);
+                if (traceIdBytes.Length != 16)
+                {
+                    throw new ArgumentException($"TraceId must be 16 bytes long. Actual length: {traceIdBytes.Length}. Base64 value: {traceIdBase64}");
+                }
+
+                var spanIdBase64 = response["env_dt_spanId"].ToString();
+                var spanIdBytes = Convert.FromBase64String(spanIdBase64);
+                if (spanIdBytes.Length != 8)
+                {
+                    throw new ArgumentException($"SpanId must be 8 bytes long. Actual length: {spanIdBytes.Length}. Base64 value: {spanIdBase64}");
+                }
+
                 var span = new SpanData
                 {
+
                     // Initialize identifiers
                     TraceId = Convert.FromBase64String(response["env_dt_traceId"].ToString()),
                     SpanId = Convert.FromBase64String(response["env_dt_spanId"].ToString()),
                     ParentSpanId = response.IsDBNull(response.GetOrdinal("parentId")) ? null : Convert.FromBase64String(response.GetString(response.GetOrdinal("parentId"))),
                     Name = response["name"].ToString(),
                     Kind = Convert.ToInt32(response["kind"]),
-                    TraceState = response["traceState"].ToString(),
                     StartTime = DateTimeOffset.Parse(response["startTime"].ToString()),
-                    EndTime = DateTimeOffset.Parse(response["endTime"].ToString()),
+                    EndTime = DateTimeOffset.Parse(response["env_time"].ToString()),
                     LibraryName = response["instrumentation_scope.name"].ToString(),
                     LibraryVersion = response["telemetry.sdk.version"].ToString(),
                     Status = new SpanStatus
@@ -42,66 +65,71 @@ namespace SpanRetriever1
                         StatusCode = Convert.ToInt32(response["httpStatusCode"]),
                         Description = response["statusMessage"].ToString()
                     },
-                    Flags = Convert.ToUInt32(response["flags"]),
-                    Resource = new Resource()
+                    
                 };
-
-                // Add resource attributes
-                AddResourceAttributes(span.Resource, response);
-
-                // Add HTTP span attributes
-                AddSpanAttributes(span, response);
-
+                if (span.Kind == 1)
+                {
+                    AddServerSpanAttributes(span, response);
+                }
+                else if (span.Kind == 2)
+                {
+                    AddClientSpanAttributes(span, response);
+                }
+                else 
+                {
+                    AddConsumerProducerAttributes(span, response);
+                }
                 spanDataList.Add(span);
             }
 
             return spanDataList;
         }
 
-        private static void AddResourceAttributes(Resource resource, IDataReader response)
+        private static void AddClientSpanAttributes(SpanData span, IDataReader response)
         {
-            resource.Attributes = new List<KeyValuePair<string, object>>
-            {
-                new KeyValuePair<string, object>("cloud.region", response["cloud.region"]),
-                new KeyValuePair<string, object>("deployment.environment", response["deployment.environment"]),
-                new KeyValuePair<string, object>("service.name", response["service.name"]),
-                new KeyValuePair<string, object>("service.namespace", response["service.namespace"]),
-                new KeyValuePair<string, object>("service.instance.id", response["service.instance.id"]),
-                new KeyValuePair<string, object>("telemetry.sdk.version", response["telemetry.sdk.version"]),
-                new KeyValuePair<string, object>("host.id", response["net.host.name"]),
-                new KeyValuePair<string, object>("host.name", response["net.host.name"]),
-            };
+            span.Attributes.Add(new KeyValuePair<string, object>("http.request.method", response["http.request.method"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("server.address", response["server.address"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("server.port", response["server.port"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("url.full", response["url.full"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("error.type", response["error.type"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("http.request.method_original", response["http.request.method"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("http.response.status_code", response["http.response.status_code"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("network.protocol.name", response["network.protocol.version"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("network.peer.port", response["net.peer.port"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("network.protocol.version", response["network.protocol.version"]));
+            //span.Attributes.Add(new KeyValuePair<string, object>("http.response.header", new List<string> { response["http.response.header.apim_request_id"].ToString(), response["http.response.header.x_request_id"].ToString(), response["http.response.header.x_organization_request_id"].ToString(), response["http.response.header.azure_resource_request_id"].ToString() }));
+            span.Attributes.Add(new KeyValuePair<string, object>("url.scheme", response["url.scheme"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("user_agent.original", response["user_agent.original"]));
         }
-
-        private static void AddSpanAttributes(SpanData span, IDataReader response)
+        private static void AddServerSpanAttributes(SpanData span, IDataReader response)
         {
-            // Common HTTP attributes
-            span.Attributes.Add(new KeyValuePair<string, object>("http.method", response["httpMethod"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.url", response["httpUrl"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.target", response["http.target"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.host", response["http.host"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.scheme", response["http.scheme"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.flavor", response["http.flavor"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.user_agent", response["http.user_agent"]));
-
-            // HTTP request and response attributes
-            span.Attributes.Add(new KeyValuePair<string, object>("http.request_content_length", response["http.request_content_length"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.response_content_length", response["http.response_content_length"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.status_code", response["httpStatusCode"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.server_name", response["http.server_name"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("http.request.method", response["http.request.method"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("url.full", response["url.full"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("url.scheme", response["url.scheme"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("error.type", response["error.type"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("http.request.method_original", response["http.request.method"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("http.response.status_code", response["http.response.status_code"]));
             span.Attributes.Add(new KeyValuePair<string, object>("http.route", response["http.route"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.client_ip", response["http.client_ip"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.request.header.apim_request_id", response["http.request.header.apim_request_id"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("http.request.header.x_request_id", response["http.request.header.x_request_id"]));
-
-            // Network attributes
-            span.Attributes.Add(new KeyValuePair<string, object>("net.peer.ip", response["net.peer.ip"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("net.peer.port", response["net.peer.port"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("net.host.port", response["net.host.port"]));
-            span.Attributes.Add(new KeyValuePair<string, object>("net.transport", response["net.transport"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("network.protocol.name", response["network.protocol.version"]));    
+            span.Attributes.Add(new KeyValuePair<string, object>("server.port", response["server.port"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("network.peer.port", response["net.peer.port"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("network.protocol.version", response["network.protocol.version"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("server.address", response["server.address"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("user_agent.original", response["user_agent.original"]));
+            //span.Attributes.Add(new KeyValuePair<string, object>("http.response.header", new List<string> { response["http.response.header.apim_request_id"].ToString(), response["http.response.header.x_request_id"].ToString(), response["http.response.header.x_organization_request_id"].ToString(), response["http.response.header.azure_resource_request_id"].ToString() }));
         }
 
-        public static List<Span> ConvertSpanDataToSpan(List<SpanData> spanDataList)
+        private static void AddConsumerProducerAttributes(SpanData span, IDataReader response)
+        {
+            span.Attributes.Add(new KeyValuePair<string, object>("error.type", response["error.type"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("server.address", response["server.address"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("network.peer.port", response["net.peer.port"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("server.port", response["server.port"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("messaging.destination.name", response["messaging.destination.name"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("messaging.operation.type", response["messaging.operation"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("messaging.system", response["messagingSystem"]));
+        }
+        internal static List<Span> ConvertSpanDataToSpan(List<SpanData> spanDataList)
         {
             var spans = new List<Span>();
 
@@ -110,14 +138,15 @@ namespace SpanRetriever1
                 var traceIdBytes = new byte[16];
                 var spanIdBytes = new byte[8];
 
-                spanData.TraceId.CopyTo(traceIdBytes, 0);
-                spanData.SpanId.CopyTo(spanIdBytes, 0);
+                spanData.TraceId.AsSpan().CopyTo(traceIdBytes);
+                spanData.SpanId.AsSpan().CopyTo(spanIdBytes);
+
 
                 var parentSpanIdString = ByteString.Empty;
                 if (spanData.ParentSpanId != null)
                 {
                     var parentSpanIdBytes = new byte[8];
-                    spanData.ParentSpanId.CopyTo(parentSpanIdBytes, 0);
+                    spanData.ParentSpanId.AsSpan().CopyTo(parentSpanIdBytes);
                     parentSpanIdString = UnsafeByteOperations.UnsafeWrap(parentSpanIdBytes);
                 }
 
@@ -128,9 +157,10 @@ namespace SpanRetriever1
                     TraceId = UnsafeByteOperations.UnsafeWrap(traceIdBytes),
                     SpanId = UnsafeByteOperations.UnsafeWrap(spanIdBytes),
                     ParentSpanId = parentSpanIdString,
-                    TraceState = spanData.TraceState ?? string.Empty,
-                    StartTimeUnixNano = (ulong)spanData.StartTime.ToUnixTimeNanoseconds(),
-                    EndTimeUnixNano = (ulong)spanData.EndTime.ToUnixTimeNanoseconds(),
+                    StartTimeUnixNano = (ulong)(spanData.StartTime.ToUnixTimeMilliseconds() * 1_000_000),
+                    EndTimeUnixNano = (ulong)(spanData.EndTime.ToUnixTimeMilliseconds() * 1_000_000),
+                    //StartTimeUnixNano = (ulong)spanData.StartTime.ToUnixTimeNanoseconds(),
+                    //EndTimeUnixNano = (ulong)spanData.EndTime.ToUnixTimeNanoseconds(),
                 };
 
                 foreach (var attribute in spanData.Attributes)
@@ -147,8 +177,6 @@ namespace SpanRetriever1
                     Code = (Status.Types.StatusCode)spanData.Status.StatusCode,
                     Message = spanData.Status.Description ?? string.Empty
                 };
-
-                otlpSpan.Flags = spanData.Flags;
 
                 spans.Add(otlpSpan);
             }
