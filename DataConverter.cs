@@ -33,27 +33,24 @@ namespace SpanRetriever1
 
             while (response.Read())
             {
-                var traceIdBase64 = response["env_dt_traceId"].ToString();
-                var traceIdBytes = Convert.FromBase64String(traceIdBase64);
+                var traceIdBytes = HexStringToByteArray(response["env_dt_traceId"].ToString());
                 if (traceIdBytes.Length != 16)
                 {
-                    throw new ArgumentException($"TraceId must be 16 bytes long. Actual length: {traceIdBytes.Length}. Base64 value: {traceIdBase64}");
+                    throw new ArgumentException($"TraceId must be 16 bytes long. Actual length: {traceIdBytes.Length}.");
                 }
 
-                var spanIdBase64 = response["env_dt_spanId"].ToString();
-                var spanIdBytes = Convert.FromBase64String(spanIdBase64);
+                var spanIdBytes = HexStringToByteArray(response["env_dt_spanId"].ToString());
                 if (spanIdBytes.Length != 8)
                 {
-                    throw new ArgumentException($"SpanId must be 8 bytes long. Actual length: {spanIdBytes.Length}. Base64 value: {spanIdBase64}");
+                    throw new ArgumentException($"SpanId must be 8 bytes long. Actual length: {spanIdBytes.Length}.");
                 }
 
                 var span = new SpanData
                 {
-
                     // Initialize identifiers
-                    TraceId = Convert.FromBase64String(response["env_dt_traceId"].ToString()),
-                    SpanId = Convert.FromBase64String(response["env_dt_spanId"].ToString()),
-                    ParentSpanId = response.IsDBNull(response.GetOrdinal("parentId")) ? null : Convert.FromBase64String(response.GetString(response.GetOrdinal("parentId"))),
+                    TraceId = traceIdBytes,
+                    SpanId = spanIdBytes,
+                    ParentSpanId = response.IsDBNull(response.GetOrdinal("parentId")) ? null : HexStringToByteArray(response.GetString(response.GetOrdinal("parentId"))),
                     Name = response["name"].ToString(),
                     Kind = Convert.ToInt32(response["kind"]),
                     StartTime = DateTimeOffset.Parse(response["startTime"].ToString()),
@@ -67,7 +64,11 @@ namespace SpanRetriever1
                     },
                     
                 };
-                if (span.Kind == 1)
+                if (span.Kind == 0)
+                {
+                    AddInternalSpanAttributes(span, response);
+                }
+                else if (span.Kind == 1)
                 {
                     AddServerSpanAttributes(span, response);
                 }
@@ -84,7 +85,17 @@ namespace SpanRetriever1
 
             return spanDataList;
         }
+        private static void AddInternalSpanAttributes(SpanData span, IDataReader response)
+        {
+            span.Attributes.Add(new KeyValuePair<string, object>("cloud.region", response["cloud.region"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("deployment.environment", response["deployment.environment"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("service.name", response["service.name"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("service.namespace", response["service.namespace"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("success", response["success"]));
+            span.Attributes.Add(new KeyValuePair<string, object>("type", response["type"]));
 
+
+        }
         private static void AddClientSpanAttributes(SpanData span, IDataReader response)
         {
             span.Attributes.Add(new KeyValuePair<string, object>("http.request.method", response["http.request.method"]));
@@ -97,7 +108,7 @@ namespace SpanRetriever1
             span.Attributes.Add(new KeyValuePair<string, object>("network.protocol.name", response["network.protocol.version"]));
             span.Attributes.Add(new KeyValuePair<string, object>("network.peer.port", response["net.peer.port"]));
             span.Attributes.Add(new KeyValuePair<string, object>("network.protocol.version", response["network.protocol.version"]));
-            //span.Attributes.Add(new KeyValuePair<string, object>("http.response.header", new List<string> { response["http.response.header.apim_request_id"].ToString(), response["http.response.header.x_request_id"].ToString(), response["http.response.header.x_organization_request_id"].ToString(), response["http.response.header.azure_resource_request_id"].ToString() }));
+            //span.Attributes.Add(new KeyValuePair<string, object>("http.request.header", new List<string> { response["http.request.header.apim_request_id"].ToString(), response["http.request.header.x_request_id"].ToString(), response["http.request.header.x_organization_request_id"].ToString(), response["http.request.header.azure_resource_request_id"].ToString() }));
             span.Attributes.Add(new KeyValuePair<string, object>("url.scheme", response["url.scheme"]));
             span.Attributes.Add(new KeyValuePair<string, object>("user_agent.original", response["user_agent.original"]));
         }
@@ -116,7 +127,7 @@ namespace SpanRetriever1
             span.Attributes.Add(new KeyValuePair<string, object>("network.protocol.version", response["network.protocol.version"]));
             span.Attributes.Add(new KeyValuePair<string, object>("server.address", response["server.address"]));
             span.Attributes.Add(new KeyValuePair<string, object>("user_agent.original", response["user_agent.original"]));
-            //span.Attributes.Add(new KeyValuePair<string, object>("http.response.header", new List<string> { response["http.response.header.apim_request_id"].ToString(), response["http.response.header.x_request_id"].ToString(), response["http.response.header.x_organization_request_id"].ToString(), response["http.response.header.azure_resource_request_id"].ToString() }));
+            //span.Attributes.Add(new KeyValuePair<string, object>("http.request.header", new List<string> { response["http.request.header.apim_request_id"].ToString(), response["http.request.header.x_request_id"].ToString(), response["http.request.header.x_organization_request_id"].ToString(), response["http.request.header.azure_resource_request_id"].ToString() }));
         }
 
         private static void AddConsumerProducerAttributes(SpanData span, IDataReader response)
@@ -129,14 +140,25 @@ namespace SpanRetriever1
             span.Attributes.Add(new KeyValuePair<string, object>("messaging.operation.type", response["messaging.operation"]));
             span.Attributes.Add(new KeyValuePair<string, object>("messaging.system", response["messagingSystem"]));
         }
+        private static byte[] HexStringToByteArray(string hex)
+        {
+            int numberChars = hex.Length;
+            byte[] bytes = new byte[numberChars / 2];
+            for (int i = 0; i < numberChars; i += 2)
+            {
+                bytes[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
+            }
+            return bytes;
+        }
+        
         internal static List<Span> ConvertSpanDataToSpan(List<SpanData> spanDataList)
         {
             var spans = new List<Span>();
 
             foreach (var spanData in spanDataList)
             {
-                var traceIdBytes = new byte[16];
-                var spanIdBytes = new byte[8];
+                byte[] traceIdBytes = new byte[16];
+                byte[] spanIdBytes = new byte[8];
 
                 spanData.TraceId.AsSpan().CopyTo(traceIdBytes);
                 spanData.SpanId.AsSpan().CopyTo(spanIdBytes);
@@ -145,7 +167,7 @@ namespace SpanRetriever1
                 var parentSpanIdString = ByteString.Empty;
                 if (spanData.ParentSpanId != null)
                 {
-                    var parentSpanIdBytes = new byte[8];
+                    byte[] parentSpanIdBytes = new byte[8];
                     spanData.ParentSpanId.AsSpan().CopyTo(parentSpanIdBytes);
                     parentSpanIdString = UnsafeByteOperations.UnsafeWrap(parentSpanIdBytes);
                 }
@@ -159,8 +181,6 @@ namespace SpanRetriever1
                     ParentSpanId = parentSpanIdString,
                     StartTimeUnixNano = (ulong)(spanData.StartTime.ToUnixTimeMilliseconds() * 1_000_000),
                     EndTimeUnixNano = (ulong)(spanData.EndTime.ToUnixTimeMilliseconds() * 1_000_000),
-                    //StartTimeUnixNano = (ulong)spanData.StartTime.ToUnixTimeNanoseconds(),
-                    //EndTimeUnixNano = (ulong)spanData.EndTime.ToUnixTimeNanoseconds(),
                 };
 
                 foreach (var attribute in spanData.Attributes)
@@ -183,6 +203,10 @@ namespace SpanRetriever1
 
             return spans;
         }
+
+        
+
+
     }
 
 }

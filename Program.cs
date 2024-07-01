@@ -19,15 +19,14 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
     var kcsb = new KustoConnectionStringBuilder(clusterUri)
         .WithAadUserPromptAuthentication();
     var spanIds = new List<string>();
-    var spans = new List<Span>();
+    var spanDataList = new List<SpanData>();
     using (var kustoClient = KustoClientFactory.CreateCslQueryProvider(kcsb))
     {
         string database = "prod";
-
         // First query to go from requestId -> traceId
         string query = $@"
             union *
-            | where TIMESTAMP > ago(4d)
+            | where TIMESTAMP > ago(7d)
             | where ['http.request.header.apim_request_id'] == '{requestId}'";
 
         using (var response = kustoClient.ExecuteQuery(database, query, null))
@@ -43,12 +42,11 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
 
             if (count != 1)
             {
-                Console.WriteLine($"Error: Expected exactly one traceId, but found {count}.");
                 return Results.BadRequest($"Error: Expected exactly one traceId, but found {count}.");
             }
 
             Console.WriteLine("TraceId: " + traceId);
-            List<SpanData> spanDataList;
+            //List<SpanData> spanDataList;
 
             // Second query to go from traceId -> span
             string secondQuery = $@"
@@ -58,6 +56,7 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
             using (var secondResponse = kustoClient.ExecuteQuery(database, secondQuery, null))
             {
                 spanDataList = DataConverter.ConvertResponseToSpanData(secondResponse);
+   
                 while (secondResponse.Read())
                 {
                     var spanId = secondResponse["env_dt_spanId"].ToString();
@@ -66,10 +65,20 @@ app.MapGet("/getspan/{requestId}", (string requestId) =>
                 }
 
             }
-            spans = DataConverter.ConvertSpanDataToSpan(spanDataList);
+            //spans = DataConverter.ConvertSpanDataToSpan(spanDataList);
+
         }
     }
-    return Results.Ok(JsonConvert.SerializeObject(spanIds));
+    var spans = DataConverter.ConvertSpanDataToSpan(spanDataList);
+    // Return spans as JSON
+    var jsonResponse = JsonConvert.SerializeObject(spans, new JsonSerializerSettings
+    {
+        Formatting = Formatting.Indented,
+        ReferenceLoopHandling = ReferenceLoopHandling.Ignore
+    });
+
+    return Results.Ok(jsonResponse);
+    //return Results.Ok(JsonConvert.SerializeObject(spanIds));
 });
 
  
